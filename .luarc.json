@@ -5,12 +5,7 @@
     ],
     "Lua.diagnostics.globals": [
         "vim",
-        "describe",
-        "it",
-        "before_each",
-        "after_each",
-        "packer_plugins",
-        "lfs"
+        "MiniTest"
     ],
     "Lua.workspace.checkThirdParty": false
 }
