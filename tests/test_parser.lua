@@ -92,6 +92,38 @@ theirs
 >>>>>>>>>> branch]])), 0)
 end
 
+-- `conflict-marker-size` git attribute
+T['custom marker size'] = function()
+  local lines = split([[
+<<<<<<<<<< HEAD
+ours
+=======
+==========
+theirs
+>>>>>>> not the end
+>>>>>>>>>> branch]])
+  eq(#parser.detect(lines), 0)
+  local positions = parser.detect(lines, 10)
+  eq(#positions, 1)
+  eq(positions[1].current, { range_start = 0, content_start = 1, range_end = 2, content_end = 2 })
+  eq(positions[1].incoming, { range_start = 4, content_start = 4, range_end = 6, content_end = 5 })
+end
+
+T['zdiff3 conflict'] = function()
+  local p = parser.detect(split([[
+common
+<<<<<<< HEAD
+ours
+||||||| base
+base
+=======
+theirs
+>>>>>>> branch
+common]]))[1]
+  eq(p.current, { range_start = 1, content_start = 2, range_end = 2, content_end = 2 })
+  eq(p.ancestor, { range_start = 3, content_start = 4, range_end = 4, content_end = 4 })
+end
+
 T['unterminated conflict is discarded and a new start restarts'] = function()
   local positions = parser.detect(split([[
 <<<<<<< HEAD

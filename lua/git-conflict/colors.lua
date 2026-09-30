@@ -32,4 +32,14 @@ function M.shade_color(color, percent)
   return string.format('#%02x%02x%02x', r, g, b)
 end
 
+---Make a color stand out from itself: lighten dark colors and darken light ones
+---@param color integer 24-bit RGB value
+---@param percent number
+---@return string hex color
+function M.contrast(color, percent)
+  local rgb = decode_24bit_rgb(color)
+  local luminance = (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b) / 255
+  return M.shade_color(color, luminance > 0.5 and -percent / 2 or percent)
+end
+
 return M

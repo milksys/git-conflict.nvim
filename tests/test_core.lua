@@ -178,7 +178,7 @@ T['labels do not depend on window width'] = function()
   local ns = child.api.nvim_create_namespace('git-conflict')
   local marks = child.api.nvim_buf_get_extmarks(0, ns, 0, 0, { details = true })
   eq(marks[1][4].line_hl_group, 'GitConflictCurrentLabel')
-  eq(marks[1][4].virt_text[1][1], '(Current changes)')
+  eq(marks[1][4].virt_text[1][1], '(Current changes: main)')
 end
 
 return T

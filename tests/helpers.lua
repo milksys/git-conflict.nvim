@@ -21,7 +21,7 @@ end
 
 ---Create a temporary git repo in which every file in `files` is in a conflicted state
 ---@param files table<string, {base: string, ours: string, theirs: string}>
----@param opts? {diff3?: boolean}
+---@param opts? {diff3?: boolean, operation?: 'merge'|'rebase'|'cherry-pick'}
 ---@return string dir absolute (realpath) path to the repo
 function H.make_repo(files, opts)
   opts = opts or {}
@@ -43,7 +43,15 @@ function H.make_repo(files, opts)
   commit_side('theirs', 'theirs')
   git(dir, 'checkout', '-q', 'main')
   commit_side('ours', 'ours')
-  git(dir, 'merge', 'theirs')
+  if opts.operation == 'rebase' then
+    -- replay the "theirs" branch onto main
+    git(dir, 'checkout', '-q', 'theirs')
+    git(dir, 'rebase', 'main')
+  elseif opts.operation == 'cherry-pick' then
+    git(dir, 'cherry-pick', 'theirs')
+  else
+    git(dir, 'merge', 'theirs')
+  end
   return dir
 end
 

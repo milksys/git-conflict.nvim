@@ -41,6 +41,11 @@ I recommend using the {tag|version} field of your package manager, so your versi
   disable_diagnostics = false, -- This will disable the diagnostics in a buffer whilst it is conflicted
   list_opener = 'copen', -- command or function to open the conflicts list
   show_keymap_hints = false, -- show the default mappings next to the conflict labels
+  word_diff = true, -- highlight the words that differ between the current and incoming changes
+  operation_labels = true, -- describe each side based on the merge/rebase/cherry-pick in progress
+  hide_ancestor = false, -- hide the base section of diff3 conflicts (see GitConflictToggleAncestor)
+  on_file_resolved = nil, -- 'stage' | 'prompt' | function(bufnr, path), run on save once a file has no conflicts left
+  picker = nil, -- 'snacks' | 'telescope' | 'fzf-lua' | 'select', detected automatically by default
   highlights = { -- They must have background color, otherwise the default color will be used
     incoming = 'DiffAdd',
     current = 'DiffText',
@@ -48,20 +53,41 @@ I recommend using the {tag|version} field of your package manager, so your versi
 }
 ```
 
+### Labels during a rebase
+
+During a rebase git's "ours" is the branch being rebased onto and "theirs" is your own commit,
+which is easy to get the wrong way round. With `operation_labels` the labels say what each side
+is, e.g. `(Current changes: rebasing onto main)` and `(Incoming changes: your commit from feature)`.
+Merges, cherry-picks and reverts are described as well.
+
+### Staging resolved files
+
+Set `on_file_resolved = 'stage'` to `git add` a file when it is saved without any conflict markers
+left, or `'prompt'` to be asked first. A function receives the buffer and path instead.
+
 ## Commands
 
 - `GitConflictChooseOurs` — Select the current changes.
 - `GitConflictChooseTheirs` — Select the incoming changes.
 - `GitConflictChooseBoth` — Select both changes.
+- `GitConflictChooseBothReverse` — Select both changes, incoming first.
 - `GitConflictChooseBase` — Select the base (ancestor) changes, requires `merge.conflictStyle=diff3`.
 - `GitConflictChooseNone` — Select none of the changes.
+- `GitConflictChooseCursor` — Keep the section the cursor is in (ours, base or theirs).
 - `GitConflictNextConflict` — Move to the next conflict.
 - `GitConflictPrevConflict` — Move to the previous conflict.
-- `GitConflictChooseCursor` — Keep the section the cursor is in (ours, base or theirs).
+- `GitConflictNextFile` — Open the next conflicted file at its first conflict.
+- `GitConflictPrevFile` — Open the previous conflicted file at its last conflict.
+- `GitConflictPreview` — Preview each way of resolving the conflict under the cursor in a floating
+  window (`<Tab>`/`<S-Tab>` to cycle, `<CR>` to apply, `q` to close).
+- `GitConflictToggleAncestor` — Hide or show the base section of diff3 conflicts.
+- `GitConflictPick` — Pick a conflict from every conflicted file with
+  [snacks](https://github.com/folke/snacks.nvim), [telescope](https://github.com/nvim-telescope/telescope.nvim),
+  [fzf-lua](https://github.com/ibhagwan/fzf-lua) or `vim.ui.select`.
 - `GitConflictListQf` — Get all conflict to quickfix
 - `GitConflictRefresh` — Re-read the list of conflicted files from git
 
-The `GitConflictChoose{Ours,Theirs,Both,Base,None}` commands accept a range
+The `GitConflictChoose{Ours,Theirs,Both,BothReverse,Base,None}` commands accept a range
 (e.g. `:'<,'>GitConflictChooseOurs` or `:%GitConflictChooseTheirs`), which resolves every
 conflict inside it, and a bang (`:GitConflictChooseOurs!`) which resolves every conflict in the
 buffer. In visual mode the default mappings resolve every conflict inside the selection.
@@ -105,8 +131,15 @@ The default mappings are:
 - <kbd>c</kbd><kbd>0</kbd> — choose none
 - <kbd>]</kbd><kbd>x</kbd> — move to next conflict
 - <kbd>[</kbd><kbd>x</kbd> — move to previous conflict
+- <kbd>]</kbd><kbd>X</kbd> — open the next conflicted file
+- <kbd>[</kbd><kbd>X</kbd> — open the previous conflicted file
 
-If you would rather not use these then you can specify your own mappings.
+Choosing a side can be repeated with <kbd>.</kbd>, e.g. <kbd>c</kbd><kbd>o</kbd> <kbd>]</kbd><kbd>x</kbd> <kbd>.</kbd>.
+The file mappings stay available until git considers the file resolved, so you can move on to
+the next file straight after resolving the last conflict.
+
+If you would rather not use these then you can specify your own mappings, an empty string
+disables a mapping.
 
 ```lua
 require'git-conflict'.setup {
@@ -115,8 +148,11 @@ require'git-conflict'.setup {
     theirs = 't',
     none = '0',
     both = 'b',
+    both_reverse = 'B', -- not mapped by default
     next = 'n',
     prev = 'p',
+    next_file = 'N',
+    prev_file = 'P',
   },
 }
 ```
@@ -126,25 +162,44 @@ or alternatively, set `default_mappings = false` and apply the mappings yourself
 <details><summary>example manual mappings</summary>
 
 ```lua
-vim.keymap.set('n', 'co', '<Plug>(git-conflict-ours)')
-vim.keymap.set('n', 'ct', '<Plug>(git-conflict-theirs)')
-vim.keymap.set('n', 'cb', '<Plug>(git-conflict-both)')
-vim.keymap.set('n', 'c0', '<Plug>(git-conflict-none)')
+vim.keymap.set({ 'n', 'x' }, 'co', '<Plug>(git-conflict-ours)')
+vim.keymap.set({ 'n', 'x' }, 'ct', '<Plug>(git-conflict-theirs)')
+vim.keymap.set({ 'n', 'x' }, 'cb', '<Plug>(git-conflict-both)')
+vim.keymap.set({ 'n', 'x' }, 'cB', '<Plug>(git-conflict-both-reverse)')
+vim.keymap.set({ 'n', 'x' }, 'c0', '<Plug>(git-conflict-none)')
+vim.keymap.set('n', 'cc', '<Plug>(git-conflict-cursor)') -- keep the side under the cursor
 vim.keymap.set('n', '[x', '<Plug>(git-conflict-prev-conflict)')
 vim.keymap.set('n', ']x', '<Plug>(git-conflict-next-conflict)')
-vim.keymap.set('n', 'cc', '<Plug>(git-conflict-cursor)') -- keep the side under the cursor
+vim.keymap.set('n', '[X', '<Plug>(git-conflict-prev-file)')
+vim.keymap.set('n', ']X', '<Plug>(git-conflict-next-file)')
+vim.keymap.set('n', 'cp', '<Plug>(git-conflict-preview)')
 ```
 
-The choose mappings also work in visual mode (`x`), e.g.
-`vim.keymap.set({ 'n', 'x' }, 'co', '<Plug>(git-conflict-ours)')`.
-
 </details>
+
+## Statusline
+
+`status()` returns the number of conflicts in the buffer and the number of conflicted files in
+its repository, e.g. for [lualine](https://github.com/nvim-lualine/lualine.nvim):
+
+```lua
+sections = {
+  lualine_x = {
+    function()
+      local status = require('git-conflict').status()
+      if status.files == 0 then return '' end
+      return ('conflicts: %d (%d files)'):format(status.buffer, status.files)
+    end,
+  },
+}
+```
 
 ## Highlights
 
 The highlight groups can be overridden, e.g. in your colorscheme:
 `GitConflictCurrent`, `GitConflictIncoming`, `GitConflictAncestor`, `GitConflictCurrentLabel`,
-`GitConflictIncomingLabel`, `GitConflictAncestorLabel` and `GitConflictMiddleLabel`.
+`GitConflictIncomingLabel`, `GitConflictAncestorLabel`, `GitConflictMiddleLabel` and, for the
+word diff, `GitConflictCurrentText` and `GitConflictIncomingText`.
 
 ## Health
 
@@ -171,6 +226,31 @@ purposes.
 ```
 </details>
 
+<details><summary>status({bufnr})</summary>
+
+```vimdoc
+    Returns { buffer = number, files = number }: the conflicts in the buffer
+    and the conflicted files in its repository.
+```
+</details>
+
+<details><summary>conflicted_files({root})</summary>
+
+```vimdoc
+    Returns the sorted absolute paths of every conflicted file, optionally
+    only those in the repository at {root}.
+```
+</details>
+
+<details><summary>get_conflicts({bufnr})</summary>
+
+```vimdoc
+    Returns the conflicts in the buffer. Each has `current`, `incoming`,
+    `ancestor` and `middle` sections with 0-based `range_start`/`range_end`
+    (including the markers) and `content_start`/`content_end` lines.
+```
+</details>
+
 <details><summary>choose({side}, {opts})</summary>
 
 ```vimdoc
@@ -178,7 +258,8 @@ purposes.
     {opts.range} ({start, end}, 1-based) or the visual selection.
 
     Parameters:
-	{side} (string) 'ours' | 'theirs' | 'both' | 'base' | 'none' | 'cursor'
+	{side} (string) 'ours' | 'theirs' | 'both' | 'both_reverse' | 'base' |
+	                'none' | 'cursor'
 ```
 </details>
 
@@ -186,6 +267,21 @@ purposes.
 
 ```vimdoc
     Resolve every conflict in the current buffer with {side}.
+```
+</details>
+
+<details><summary>find_next_file() / find_prev_file()</summary>
+
+```vimdoc
+    Open the next/previous conflicted file (in path order, wrapping around).
+```
+</details>
+
+<details><summary>preview() / pick({picker}) / toggle_ancestor({hidden})</summary>
+
+```vimdoc
+    The functions behind GitConflictPreview, GitConflictPick and
+    GitConflictToggleAncestor.
 ```
 </details>
 

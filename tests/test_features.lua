@@ -100,7 +100,7 @@ T['keymap hints in labels'] = function()
   H.open(child, dir, 'conflicted.lua', { show_keymap_hints = true })
   local ns = child.api.nvim_create_namespace('git-conflict')
   local first = child.api.nvim_buf_get_extmarks(0, ns, 0, 0, { details = true })[1]
-  eq(first[4].virt_text[1][1], '(Current changes)  [co] ours  [cb] both  [c0] none')
+  eq(first[4].virt_text[1][1], '(Current changes: main)  [co] ours  [cb] both  [c0] none')
 end
 
 T['checkhealth runs'] = function()
