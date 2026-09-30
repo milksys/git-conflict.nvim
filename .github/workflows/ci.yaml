@@ -1,48 +1,58 @@
 name: CI
 on:
   push:
+    branches: [main]
   pull_request:
 
-
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: JohnnyMorganz/stylua-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: latest
+          args: --check lua tests scripts
+
   tests:
     strategy:
+      fail-fast: false
       matrix:
-        # os: [ubuntu-latest, windows-latest]
-        os: [ ubuntu-latest ]
+        os: [ubuntu-latest, macos-latest]
+        neovim: [v0.11.0, stable, nightly]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
-      - name: Install Neovim
-        shell: bash
-        run: |
-          mkdir -p /tmp/nvim
-          wget -q https://github.com/neovim/neovim/releases/download/nightly/nvim.appimage -O /tmp/nvim/nvim.appimage
-          cd /tmp/nvim
-          chmod a+x ./nvim.appimage
-          ./nvim.appimage --appimage-extract
-          echo "/tmp/nvim/squashfs-root/usr/bin/" >> $GITHUB_PATH
+      - uses: actions/checkout@v4
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: ${{ matrix.neovim }}
       - name: Run Tests
         run: |
           nvim --version
-          [ ! -d tests ] && exit 0
-          nvim --headless -u tests/minimal_init.lua -c "PlenaryBustedDirectory tests/ {minimal_init = 'tests/minimal_init.lua', sequential = true}"
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.com"
+          git config --global init.defaultBranch main
+          make test
 
   docs:
     runs-on: ubuntu-latest
     needs: tests
     if: ${{ github.ref == 'refs/heads/main' }}
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: panvimdoc
         uses: kdheepak/panvimdoc@main
         with:
           vimdoc: git-conflict
-          version: "Neovim >= 0.8.0"
+          version: "Neovim >= 0.11.0"
           demojify: true
           treesitter: true
       - name: Push changes
-        uses: stefanzweifel/git-auto-commit-action@v4
+        uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "chore(build): auto-generate vimdoc"
           commit_user_name: "github-actions[bot]"
@@ -56,16 +66,10 @@ jobs:
       - docs
       - tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
-      - uses: google-github-actions/release-please-action@v3
-        id: release
+      - uses: googleapis/release-please-action@v4
         with:
           release-type: simple
-          package-name: git-conflict.nvim
-      - uses: actions/checkout@v3
-      - name: tag stable versions
-        if: ${{ steps.release.outputs.release_created }}
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email github-actions[bot]@users.noreply.github.com
-          git remote add gh-token "https://${{ secrets.GITHUB_TOKEN }}@github.com/google-github-actions/release-please-action.git"

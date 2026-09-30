@@ -5,6 +5,9 @@ https://user-images.githubusercontent.com/22454918/159362564-a66d8c23-f7dc-4d1d-
 A plugin to visualise and resolve conflicts in neovim.
 This plugin was inspired by [conflict-marker.vim](https://github.com/rhysd/conflict-marker.vim)
 
+> [!NOTE]
+> This is a maintained fork of [akinsho/git-conflict.nvim](https://github.com/akinsho/git-conflict.nvim).
+
 ## Status
 
 This plugin is under active development, it should generally work, but you're likely to
@@ -13,18 +16,18 @@ encounter some bugs during usage.
 ## Requirements
 
 - `git`
-- `nvim 0.7+`
+- `nvim 0.11+`
 
 ## Installation
 
 ```lua
 -- packer.nvim
-use {'akinsho/git-conflict.nvim', tag = "*", config = function()
+use {'milksys/git-conflict.nvim', tag = "*", config = function()
   require('git-conflict').setup()
 end}
 
 -- lazy.nvim
-{'akinsho/git-conflict.nvim', version = "*", config = true}
+{'milksys/git-conflict.nvim', version = "*", config = true}
 ```
 
 I recommend using the {tag|version} field of your package manager, so your version of this plugin is only updated when a new tag is pushed as `main` itself might be **unstable**.
