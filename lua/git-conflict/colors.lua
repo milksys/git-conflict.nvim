@@ -20,10 +20,10 @@ local function alter(attr, percent) return math.floor(attr * (100 + percent) / 1
 
 ---@source https://stackoverflow.com/q/5560248
 ---@see: https://stackoverflow.com/a/37797380
----Darken a specified hex color
----@param color string
+---Lighten (positive percent) or darken (negative percent) a 24-bit RGB color
+---@param color integer
 ---@param percent number
----@return string
+---@return string hex color
 function M.shade_color(color, percent)
   local rgb = decode_24bit_rgb(color)
   if not rgb.r or not rgb.g or not rgb.b then return 'NONE' end

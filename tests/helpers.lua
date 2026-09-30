@@ -87,14 +87,12 @@ end
 ---Wait inside the child until `expr` (lua expression string) is truthy, redrawing on each poll
 ---so that the decoration provider runs
 function H.wait_for(child, expr, timeout)
-  local ok = child.lua(
-    ([[
+  local ok = child.lua(([[
     return vim.wait(%d, function()
       vim.cmd('redraw!')
       return (%s) and true or false
     end, 20)
-  ]]):format(timeout or 3000, expr)
-  )
+  ]]):format(timeout or 3000, expr))
   if not ok then error('Timed out waiting for: ' .. expr) end
 end
 

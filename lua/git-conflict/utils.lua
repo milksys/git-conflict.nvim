@@ -4,7 +4,6 @@
 local M = {}
 
 local api = vim.api
-local fn = vim.fn
 
 --- Wrapper for [vim.notify]
 ---@param msg string|string[]
@@ -18,30 +17,24 @@ function M.notify(msg, level, once)
   vim.notify(msg, lvl, opts)
 end
 
---- Start an async job
----@param cmd string
----@param callback fun(data: string[]): nil
-function M.job(cmd, callback)
-  fn.jobstart(cmd, {
-    stdout_buffered = true,
-    on_stdout = function(_, data, _) callback(data) end,
-  })
-end
-
----Only call the passed function once every timeout in ms
+---Call `func` once no further calls have been made for `timeout` ms (trailing edge debounce)
 ---@param timeout integer
 ---@param func function
----@return function
-function M.throttle(timeout, func)
-  local timer = vim.uv.new_timer()
-  local running = false
-  return function(...)
-    if not running then
-      func(...)
-      running = true
-      timer:start(timeout, 0, function() running = false end)
+---@return function debounced, function close
+function M.debounce(timeout, func)
+  local timer = assert(vim.uv.new_timer())
+  local debounced = function(...)
+    local args = vim.F.pack_len(...)
+    timer:stop()
+    timer:start(timeout, 0, vim.schedule_wrap(function() func(vim.F.unpack_len(args)) end))
+  end
+  local close = function()
+    if not timer:is_closing() then
+      timer:stop()
+      timer:close()
     end
   end
+  return debounced, close
 end
 
 ---Wrapper around `api.nvim_buf_get_lines` which defaults to the current buffer
@@ -52,11 +45,6 @@ end
 function M.get_buf_lines(start, _end, buf)
   return api.nvim_buf_get_lines(buf or 0, start, _end, false)
 end
-
----Get cursor row and column as (1, 0) based
----@param win_id integer?
----@return integer, integer
-function M.get_cursor_pos(win_id) return unpack(api.nvim_win_get_cursor(win_id or 0)) end
 
 ---Check if the buffer is likely to have actionable conflict markers
 ---@param bufnr integer?
