@@ -33,7 +33,7 @@ end
 ---@param func function
 ---@return function
 function M.throttle(timeout, func)
-  local timer = vim.loop.new_timer()
+  local timer = vim.uv.new_timer()
   local running = false
   return function(...)
     if not running then
@@ -67,10 +67,10 @@ function M.is_valid_buf(bufnr)
 end
 
 ---@param name string?
----@return table<string, string>
+---@return vim.api.keyset.get_hl_info
 function M.get_hl(name)
   if not name then return {} end
-  return api.nvim_get_hl_by_name(name, true)
+  return api.nvim_get_hl(0, { name = name, link = false })
 end
 
 return M

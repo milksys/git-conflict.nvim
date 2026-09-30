@@ -1,7 +1,9 @@
 local H = {}
 
 local function run(cmd, cwd)
-  local res = vim.system(cmd, { cwd = cwd, text = true }):wait()
+  -- Isolate fixtures from the user's global git config (e.g. merge.conflictStyle)
+  local env = { GIT_CONFIG_GLOBAL = '/dev/null', GIT_CONFIG_NOSYSTEM = '1' }
+  local res = vim.system(cmd, { cwd = cwd, text = true, env = env }):wait()
   return res
 end
 

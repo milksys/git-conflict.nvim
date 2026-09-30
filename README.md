@@ -52,6 +52,7 @@ I recommend using the {tag|version} field of your package manager, so your versi
 - `GitConflictChooseOurs` — Select the current changes.
 - `GitConflictChooseTheirs` — Select the incoming changes.
 - `GitConflictChooseBoth` — Select both changes.
+- `GitConflictChooseBase` — Select the base (ancestor) changes, requires `merge.conflictStyle=diff3`.
 - `GitConflictChooseNone` — Select none of the changes.
 - `GitConflictNextConflict` — Move to the next conflict.
 - `GitConflictPrevConflict` — Move to the previous conflict.

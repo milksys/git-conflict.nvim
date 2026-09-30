@@ -108,7 +108,7 @@ local ANCESTOR_HL = 'GitConflictAncestor'
 local CURRENT_LABEL_HL = 'GitConflictCurrentLabel'
 local INCOMING_LABEL_HL = 'GitConflictIncomingLabel'
 local ANCESTOR_LABEL_HL = 'GitConflictAncestorLabel'
-local PRIORITY = vim.highlight.priorities.user
+local PRIORITY = vim.hl.priorities.user
 local NAMESPACE = api.nvim_create_namespace('git-conflict')
 local AUGROUP_NAME = 'GitConflictCommands'
 
@@ -337,6 +337,8 @@ local function detect_conflicts(lines)
   return #positions > 0, positions
 end
 
+local parse_buffer
+
 ---Helper function to find a conflict position based on a comparator function
 ---@param bufnr integer
 ---@param comparator fun(string, integer): boolean
@@ -345,6 +347,11 @@ end
 local function find_position(bufnr, comparator, opts)
   local match = visited_buffers[bufnr]
   if not match then return end
+  if not match.positions then
+    parse_buffer(bufnr == 0 and api.nvim_get_current_buf() or bufnr)
+    match = visited_buffers[bufnr]
+    if not match or not match.positions then return end
+  end
   local line = utils.get_cursor_pos()
   line = line - 1 -- Convert to 0-based for position comparison
 
@@ -391,7 +398,7 @@ end
 ---@param bufnr integer
 ---@param range_start integer
 ---@param range_end integer
-local function parse_buffer(bufnr, range_start, range_end)
+function parse_buffer(bufnr, range_start, range_end)
   local lines = utils.get_buf_lines(range_start or 0, range_end or -1, bufnr)
   local prev_conflicts = visited_buffers[bufnr].positions ~= nil
       and #visited_buffers[bufnr].positions > 0
@@ -460,7 +467,7 @@ local function watch_gitdir(dir)
   if watchers[dir] then return end
 
   ---@type userdata
-  watchers[dir] = vim.loop.new_fs_event()
+  watchers[dir] = vim.uv.new_fs_event()
   watchers[dir]:start(
     dir,
     { recursive = true },
@@ -500,13 +507,13 @@ local function set_commands()
       end
     end)
   end, { nargs = 0 })
-  command('GitConflictChooseOurs', '<Plug>(git-conflict-ours)', { nargs = 0 })
-  command('GitConflictChooseTheirs', '<Plug>(git-conflict-theirs)', { nargs = 0 })
-  command('GitConflictChooseBoth', '<Plug>(git-conflict-both)', { nargs = 0 })
-  command('GitConflictChooseBase', '<Plug>(git-conflict-base)', { nargs = 0 })
-  command('GitConflictChooseNone', '<Plug>(git-conflict-none)', { nargs = 0 })
-  command('GitConflictNextConflict', '<Plug>(git-conflict-next-conflict)', { nargs = 0 })
-  command('GitConflictPrevConflict', '<Plug>(git-conflict-prev-conflict)', { nargs = 0 })
+  command('GitConflictChooseOurs', function() M.choose('ours') end, { nargs = 0 })
+  command('GitConflictChooseTheirs', function() M.choose('theirs') end, { nargs = 0 })
+  command('GitConflictChooseBoth', function() M.choose('both') end, { nargs = 0 })
+  command('GitConflictChooseBase', function() M.choose('base') end, { nargs = 0 })
+  command('GitConflictChooseNone', function() M.choose('none') end, { nargs = 0 })
+  command('GitConflictNextConflict', function() M.find_next('ours') end, { nargs = 0 })
+  command('GitConflictPrevConflict', function() M.find_prev('ours') end, { nargs = 0 })
 end
 
 -----------------------------------------------------------------------------//
@@ -584,9 +591,9 @@ local function set_highlights(highlights)
   local current_color = utils.get_hl(highlights.current)
   local incoming_color = utils.get_hl(highlights.incoming)
   local ancestor_color = utils.get_hl(highlights.ancestor)
-  local current_bg = current_color.background or DEFAULT_CURRENT_BG_COLOR
-  local incoming_bg = incoming_color.background or DEFAULT_INCOMING_BG_COLOR
-  local ancestor_bg = ancestor_color.background or DEFAULT_ANCESTOR_BG_COLOR
+  local current_bg = current_color.bg or DEFAULT_CURRENT_BG_COLOR
+  local incoming_bg = incoming_color.bg or DEFAULT_INCOMING_BG_COLOR
+  local ancestor_bg = ancestor_color.bg or DEFAULT_ANCESTOR_BG_COLOR
   local current_label_bg = color.shade_color(current_bg, 60)
   local incoming_label_bg = color.shade_color(incoming_bg, 60)
   local ancestor_label_bg = color.shade_color(ancestor_bg, 60)
@@ -630,7 +637,7 @@ function M.setup(user_config)
     group = AUGROUP_NAME,
     callback = function(args)
       local gitdir = fn.getcwd() .. sep .. '.git'
-      if not vim.loop.fs_stat(gitdir) or state.current_watcher_dir == fn.getcwd() then return end
+      if not vim.uv.fs_stat(gitdir) or state.current_watcher_dir == fn.getcwd() then return end
       stop_running_watchers(gitdir)
       fetch_conflicts(args.buf)
       throttled_watcher(gitdir)
@@ -652,7 +659,7 @@ function M.setup(user_config)
     pattern = 'GitConflictDetected',
     callback = function()
       local bufnr = api.nvim_get_current_buf()
-      if config.disable_diagnostics then vim.diagnostic.disable(bufnr) end
+      if config.disable_diagnostics then vim.diagnostic.enable(false, { bufnr = bufnr }) end
       if config.default_mappings then setup_buffer_mappings(bufnr) end
     end,
   })
@@ -662,7 +669,7 @@ function M.setup(user_config)
     pattern = 'GitConflictResolved',
     callback = function()
       local bufnr = api.nvim_get_current_buf()
-      if config.disable_diagnostics then vim.diagnostic.enable(bufnr) end
+      if config.disable_diagnostics then vim.diagnostic.enable(true, { bufnr = bufnr }) end
       if config.default_mappings then clear_buffer_mappings(bufnr) end
     end,
   })
@@ -768,6 +775,9 @@ function M.choose(side)
         local lines = {}
         if vim.tbl_contains({ SIDES.OURS, SIDES.THEIRS, SIDES.BASE }, side) then
           local data = position[name_map[side]]
+          if not data.content_start then
+            return utils.notify('No base section found, is merge.conflictStyle set to diff3?', 'warn')
+          end
           lines = utils.get_buf_lines(data.content_start, data.content_end + 1)
         elseif side == SIDES.BOTH then
           local first =
@@ -805,6 +815,9 @@ function M.choose(side)
   local lines = {}
   if vim.tbl_contains({ SIDES.OURS, SIDES.THEIRS, SIDES.BASE }, side) then
     local data = position[name_map[side]]
+    if not data.content_start then
+      return utils.notify('No base section found, is merge.conflictStyle set to diff3?', 'warn')
+    end
     lines = utils.get_buf_lines(data.content_start, data.content_end + 1)
   elseif side == SIDES.BOTH then
     local first =
@@ -830,7 +843,7 @@ function M.choose(side)
   parse_buffer(bufnr)
 end
 
-function M.debug_watchers() vim.pretty_print({ watchers = watchers }) end
+function M.debug_watchers() vim.print({ watchers = watchers }) end
 
 function M.conflict_count(bufnr)
   if bufnr and not api.nvim_buf_is_valid(bufnr) then return 0 end
@@ -839,7 +852,13 @@ function M.conflict_count(bufnr)
   local name = api.nvim_buf_get_name(bufnr)
   if not visited_buffers[name] then return 0 end
 
-  return #visited_buffers[name].positions
+  local match = visited_buffers[name]
+  if not match.positions then
+    parse_buffer(bufnr == 0 and api.nvim_get_current_buf() or bufnr)
+    match = visited_buffers[name]
+    if not match or not match.positions then return 0 end
+  end
+  return #match.positions
 end
 
 return M
