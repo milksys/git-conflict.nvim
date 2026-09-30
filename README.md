@@ -40,6 +40,7 @@ I recommend using the {tag|version} field of your package manager, so your versi
   default_commands = true, -- disable commands created by this plugin
   disable_diagnostics = false, -- This will disable the diagnostics in a buffer whilst it is conflicted
   list_opener = 'copen', -- command or function to open the conflicts list
+  show_keymap_hints = false, -- show the default mappings next to the conflict labels
   highlights = { -- They must have background color, otherwise the default color will be used
     incoming = 'DiffAdd',
     current = 'DiffText',
@@ -56,7 +57,14 @@ I recommend using the {tag|version} field of your package manager, so your versi
 - `GitConflictChooseNone` — Select none of the changes.
 - `GitConflictNextConflict` — Move to the next conflict.
 - `GitConflictPrevConflict` — Move to the previous conflict.
+- `GitConflictChooseCursor` — Keep the section the cursor is in (ours, base or theirs).
 - `GitConflictListQf` — Get all conflict to quickfix
+- `GitConflictRefresh` — Re-read the list of conflicted files from git
+
+The `GitConflictChoose{Ours,Theirs,Both,Base,None}` commands accept a range
+(e.g. `:'<,'>GitConflictChooseOurs` or `:%GitConflictChooseTheirs`), which resolves every
+conflict inside it, and a bang (`:GitConflictChooseOurs!`) which resolves every conflict in the
+buffer. In visual mode the default mappings resolve every conflict inside the selection.
 
 ### Listing conflicts
 
@@ -72,21 +80,17 @@ When a conflict is detected by this plugin a `User` autocommand is fired
 called `GitConflictDetected`. When this is resolved another command is
 fired called `GitConflictResolved`.
 
-Either of these can be used to run logic whilst dealing with conflicts
-e.g.
+Each event fires once per change of state (including when git reports the file as resolved,
+e.g. after `git add` or `git merge --abort`) and carries the buffer in `args.data.bufnr`.
 
 ```lua
 vim.api.nvim_create_autocmd('User', {
   pattern = 'GitConflictDetected',
-  callback = function()
-    vim.notify('Conflict detected in '..vim.fn.expand('<afile>'))
-    vim.keymap.set('n', 'cww', function()
-      engage.conflict_buster()
-      create_buffer_local_mappings()
-    end)
+  callback = function(args)
+    local bufnr = args.data.bufnr
+    vim.notify('Conflict detected in ' .. vim.api.nvim_buf_get_name(bufnr))
   end
 })
-
 ```
 
 ## Mappings
@@ -99,8 +103,8 @@ The default mappings are:
 - <kbd>c</kbd><kbd>t</kbd> — choose theirs
 - <kbd>c</kbd><kbd>b</kbd> — choose both
 - <kbd>c</kbd><kbd>0</kbd> — choose none
-- <kbd>]</kbd><kbd>x</kbd> — move to previous conflict
-- <kbd>[</kbd><kbd>x</kbd> — move to next conflict
+- <kbd>]</kbd><kbd>x</kbd> — move to next conflict
+- <kbd>[</kbd><kbd>x</kbd> — move to previous conflict
 
 If you would rather not use these then you can specify your own mappings.
 
@@ -128,9 +132,24 @@ vim.keymap.set('n', 'cb', '<Plug>(git-conflict-both)')
 vim.keymap.set('n', 'c0', '<Plug>(git-conflict-none)')
 vim.keymap.set('n', '[x', '<Plug>(git-conflict-prev-conflict)')
 vim.keymap.set('n', ']x', '<Plug>(git-conflict-next-conflict)')
+vim.keymap.set('n', 'cc', '<Plug>(git-conflict-cursor)') -- keep the side under the cursor
 ```
 
+The choose mappings also work in visual mode (`x`), e.g.
+`vim.keymap.set({ 'n', 'x' }, 'co', '<Plug>(git-conflict-ours)')`.
+
 </details>
+
+## Highlights
+
+The highlight groups can be overridden, e.g. in your colorscheme:
+`GitConflictCurrent`, `GitConflictIncoming`, `GitConflictAncestor`, `GitConflictCurrentLabel`,
+`GitConflictIncomingLabel`, `GitConflictAncestorLabel` and `GitConflictMiddleLabel`.
+
+## Health
+
+Run `:checkhealth git-conflict` to check your Neovim/git versions, the `merge.conflictStyle`
+setting and whether the default mappings shadow existing ones.
 
 ## API
 
@@ -149,6 +168,24 @@ purposes.
 
     Return:
 	number: The amount of conflicts.
+```
+</details>
+
+<details><summary>choose({side}, {opts})</summary>
+
+```vimdoc
+    Resolve the conflict under the cursor, or every conflict inside
+    {opts.range} ({start, end}, 1-based) or the visual selection.
+
+    Parameters:
+	{side} (string) 'ours' | 'theirs' | 'both' | 'base' | 'none' | 'cursor'
+```
+</details>
+
+<details><summary>choose_all({side})</summary>
+
+```vimdoc
+    Resolve every conflict in the current buffer with {side}.
 ```
 </details>
 

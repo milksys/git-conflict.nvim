@@ -23,7 +23,7 @@ local map = vim.keymap.set
 -- Types
 -----------------------------------------------------------------------------//
 
----@alias ConflictSide "'ours'"|"'theirs'"|"'both'"|"'base'"|"'none'"
+---@alias ConflictSide "'ours'"|"'theirs'"|"'both'"|"'base'"|"'none'"|"'cursor'"
 
 --- @class ConflictHighlights
 --- @field current string
@@ -63,6 +63,7 @@ local map = vim.keymap.set
 --- @field disable_diagnostics boolean
 --- @field list_opener string|function
 --- @field highlights ConflictHighlights
+--- @field show_keymap_hints boolean
 --- @field debug boolean
 
 --- @class GitConflictUserConfig
@@ -71,6 +72,7 @@ local map = vim.keymap.set
 --- @field disable_diagnostics? boolean
 --- @field list_opener? string|function
 --- @field highlights? ConflictHighlights
+--- @field show_keymap_hints? boolean
 --- @field debug? boolean
 
 -----------------------------------------------------------------------------//
@@ -82,6 +84,7 @@ local SIDES = {
   BOTH = 'both',
   BASE = 'base',
   NONE = 'none',
+  CURSOR = 'cursor',
 }
 
 -- A mapping between the internal names and the display names
@@ -91,6 +94,7 @@ local name_map = {
   base = 'ancestor',
   both = 'both',
   none = 'none',
+  cursor = 'cursor',
 }
 
 local CURRENT_HL = 'GitConflictCurrent'
@@ -99,6 +103,7 @@ local ANCESTOR_HL = 'GitConflictAncestor'
 local CURRENT_LABEL_HL = 'GitConflictCurrentLabel'
 local INCOMING_LABEL_HL = 'GitConflictIncomingLabel'
 local ANCESTOR_LABEL_HL = 'GitConflictAncestorLabel'
+local MIDDLE_LABEL_HL = 'GitConflictMiddleLabel'
 local PRIORITY = vim.hl.priorities.user
 local NAMESPACE = api.nvim_create_namespace('git-conflict')
 local AUGROUP_NAME = 'GitConflictCommands'
@@ -139,6 +144,7 @@ local config = {
   default_commands = true,
   disable_diagnostics = false,
   list_opener = 'copen',
+  show_keymap_hints = false,
   highlights = {
     current = 'DiffText',
     incoming = 'DiffAdd',
@@ -200,14 +206,28 @@ end
 ---@param bufnr integer
 ---@param hl_group string
 ---@param lnum integer
----@param description string
+---@param description string?
 local function draw_section_label(bufnr, hl_group, lnum, description)
   api.nvim_buf_set_extmark(bufnr, NAMESPACE, lnum, 0, {
     line_hl_group = hl_group,
-    virt_text = { { description, hl_group } },
-    virt_text_pos = 'eol',
+    virt_text = description and { { description, hl_group } } or nil,
+    virt_text_pos = description and 'eol' or nil,
     priority = PRIORITY,
   })
+end
+
+---@param description string
+---@param hints {[1]: string, [2]: string}[] pairs of mapping name and description
+---@return string
+local function with_hints(description, hints)
+  local mappings = config.default_mappings
+  if not config.show_keymap_hints or not mappings then return description end
+  local parts = { description }
+  for _, hint in ipairs(hints) do
+    local lhs = mappings[hint[1]]
+    if lhs and lhs ~= '' then table.insert(parts, fmt('[%s] %s', lhs, hint[2])) end
+  end
+  return table.concat(parts, '  ')
 end
 
 ---Highlight each part of a git conflict i.e. the incoming changes vs the current/HEAD changes
@@ -215,15 +235,19 @@ end
 ---@param positions ConflictPosition[]
 local function highlight_conflicts(bufnr, positions)
   M.clear(bufnr)
+  local current_label =
+    with_hints('(Current changes)', { { 'ours', 'ours' }, { 'both', 'both' }, { 'none', 'none' } })
+  local incoming_label = with_hints('(Incoming changes)', { { 'theirs', 'theirs' } })
   for _, position in ipairs(positions) do
-    draw_section_label(bufnr, CURRENT_LABEL_HL, position.current.range_start, '(Current changes)')
+    draw_section_label(bufnr, CURRENT_LABEL_HL, position.current.range_start, current_label)
     hl_content(bufnr, CURRENT_HL, position.current)
     if not vim.tbl_isempty(position.ancestor) then
       draw_section_label(bufnr, ANCESTOR_LABEL_HL, position.ancestor.range_start, '(Base changes)')
       hl_content(bufnr, ANCESTOR_HL, position.ancestor)
     end
+    draw_section_label(bufnr, MIDDLE_LABEL_HL, position.middle.range_start)
     hl_content(bufnr, INCOMING_HL, position.incoming)
-    draw_section_label(bufnr, INCOMING_LABEL_HL, position.incoming.range_end, '(Incoming changes)')
+    draw_section_label(bufnr, INCOMING_LABEL_HL, position.incoming.range_end, incoming_label)
   end
 end
 
@@ -242,6 +266,7 @@ local function set_highlights(highlights)
   api.nvim_set_hl(0, CURRENT_LABEL_HL, { background = current_label_bg, default = true })
   api.nvim_set_hl(0, INCOMING_LABEL_HL, { background = incoming_label_bg, default = true })
   api.nvim_set_hl(0, ANCESTOR_LABEL_HL, { background = ancestor_label_bg, default = true })
+  api.nvim_set_hl(0, MIDDLE_LABEL_HL, { link = 'NonText', default = true })
 end
 
 -----------------------------------------------------------------------------//
@@ -443,6 +468,20 @@ local function content_lines(bufnr, range)
   return api.nvim_buf_get_lines(bufnr, range.content_start, range.content_end + 1, false)
 end
 
+---Work out which side of the conflict the cursor is in
+---@param position ConflictPosition
+---@param line integer 0-based
+---@return ConflictSide?
+local function side_at(position, line)
+  if line < position.middle.range_start then
+    local ancestor = position.ancestor
+    if ancestor.range_start and line >= ancestor.range_start then return SIDES.BASE end
+    return SIDES.OURS
+  elseif line > position.middle.range_start then
+    return SIDES.THEIRS
+  end
+end
+
 ---Replace the conflict with the lines of the chosen side
 ---@param bufnr integer
 ---@param position ConflictPosition
@@ -513,6 +552,7 @@ function M.choose(side, opts)
   local positions = get_positions(bufnr)
 
   if start and finish then
+    if side == SIDES.CURSOR then return end
     local selected = vim.tbl_filter(
       function(pos)
         return pos.current.range_start >= start - 1 and pos.incoming.range_end <= finish - 1
@@ -522,8 +562,24 @@ function M.choose(side, opts)
     return resolve_all(bufnr, selected, side)
   end
 
-  local position = position_at(positions, api.nvim_win_get_cursor(0)[1] - 1)
-  if position then resolve_all(bufnr, { position }, side) end
+  local line = api.nvim_win_get_cursor(0)[1] - 1
+  local position = position_at(positions, line)
+  if not position then return end
+  if side == SIDES.CURSOR then
+    side = side_at(position, line)
+    if not side then
+      return utils.notify('Move the cursor into the section you want to keep', 'warn')
+    end
+  end
+  resolve_all(bufnr, { position }, side)
+end
+
+---Resolve every conflict in the current buffer with the same side
+---@param side ConflictSide
+function M.choose_all(side)
+  if not name_map[side] or side == SIDES.CURSOR then return end
+  local bufnr = api.nvim_get_current_buf()
+  resolve_all(bufnr, get_positions(bufnr), side)
 end
 
 ---@param side ConflictSide?
@@ -559,6 +615,7 @@ local function set_plug_mappings()
   plug({ 'n', 'x' }, 'git-conflict-both', function() M.choose('both') end, 'Choose Both')
   plug({ 'n', 'x' }, 'git-conflict-base', function() M.choose('base') end, 'Choose Base')
   plug({ 'n', 'x' }, 'git-conflict-none', function() M.choose('none') end, 'Choose None')
+  plug('n', 'git-conflict-cursor', function() M.choose('cursor') end, 'Choose Side Under Cursor')
   plug('n', 'git-conflict-next-conflict', function() M.find_next() end, 'Next Conflict')
   plug('n', 'git-conflict-prev-conflict', function() M.find_prev() end, 'Previous Conflict')
 end
@@ -620,16 +677,20 @@ local function set_commands()
     end)
   end, { nargs = 0 })
 
+  -- `:GitConflictChooseOurs!` resolves every conflict in the buffer
   local function choose_cmd(side)
     return function(args)
+      if args.bang then return M.choose_all(side) end
       M.choose(side, args.range > 0 and { range = { args.line1, args.line2 } } or nil)
     end
   end
-  command('GitConflictChooseOurs', choose_cmd('ours'), { nargs = 0, range = true })
-  command('GitConflictChooseTheirs', choose_cmd('theirs'), { nargs = 0, range = true })
-  command('GitConflictChooseBoth', choose_cmd('both'), { nargs = 0, range = true })
-  command('GitConflictChooseBase', choose_cmd('base'), { nargs = 0, range = true })
-  command('GitConflictChooseNone', choose_cmd('none'), { nargs = 0, range = true })
+  local choose_opts = { nargs = 0, range = true, bang = true }
+  command('GitConflictChooseOurs', choose_cmd('ours'), choose_opts)
+  command('GitConflictChooseTheirs', choose_cmd('theirs'), choose_opts)
+  command('GitConflictChooseBoth', choose_cmd('both'), choose_opts)
+  command('GitConflictChooseBase', choose_cmd('base'), choose_opts)
+  command('GitConflictChooseNone', choose_cmd('none'), choose_opts)
+  command('GitConflictChooseCursor', function() M.choose('cursor') end, { nargs = 0 })
   command('GitConflictNextConflict', function() M.find_next() end, { nargs = 0 })
   command('GitConflictPrevConflict', function() M.find_prev() end, { nargs = 0 })
 end
@@ -773,6 +834,9 @@ function M.clear(bufnr)
   if bufnr and not api.nvim_buf_is_valid(bufnr) then return end
   api.nvim_buf_clear_namespace(bufnr or 0, NAMESPACE, 0, -1)
 end
+
+---@return GitConflictConfig
+function M.get_config() return config end
 
 function M.debug_watchers()
   vim.print(
